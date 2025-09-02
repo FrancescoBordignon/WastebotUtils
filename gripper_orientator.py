@@ -9,6 +9,8 @@ class GripperOrientator:
     """
     Computes the optimal orientation of a robotic gripper relative to an object mask,
     aiming to avoid obstacles detected in a scene.
+    It can be used also to determine the 2D grasping point given the mask of the wanted object using
+    erode_undtil_one_pixel
 
     Attributes:
         focal_length_x = focal length of the camera in pixels (optional: necesssary only if depth is used)
@@ -32,11 +34,8 @@ class GripperOrientator:
 
         self.object_importance = object_importance
 
-        self.edge_height_y_pixels = None
-        self.edge_length_x_pixels = None
-
     def find_orientation(self, mask, point2d, panoptic_map, depth_point=None,
-                         angle_rad_inerval=math.pi / 18):
+                         angle_rad_inerval=math.pi / 18, initial_guess_importance = 1):
         """
         Finds the optimal gripper orientation around a given grasping point.
 
@@ -47,6 +46,10 @@ class GripperOrientator:
                 'segmentation' as a boolean mask (e.g., SAM output).
             depth_point (float, optional): Depth at grasp point (needed if aperture scaling factors are used).
             angle_rad_inerval (float): Angle step (in radians) for searching orientations.
+            initial_guess_importance(float): this number identifies how important ti sthe initial guessed orientation (found with PCA) 
+            0 (or lower) = max importance 
+            1 = same importance as other guesses, 
+            >1 less important than other guesses
 
         Returns:
             tuple:
@@ -75,7 +78,7 @@ class GripperOrientator:
         edges = self.find_gripper_edges(point2d, depth_point, init_angle_rad)   
         mask_gripper = np.zeros(mask_obstacles.shape, dtype=np.uint8)
         cv2.fillPoly(mask_gripper, [edges], color=1)
-        best_score = self.compute_score(mask_gripper, mask, mask_obstacles)
+        best_score = initial_guess_importance*self.compute_score(mask_gripper, mask, mask_obstacles)
         best_angle_rad = init_angle_rad
         best_bounding_box = edges
 
@@ -128,13 +131,36 @@ class GripperOrientator:
             edge_length = self.edge_length_x
             edge_height = self.edge_height_y
 
-        self.edge_length_x_pixels = edge_length
-        self.edge_height_y_pixels = edge_height
         # Create and rotate rectangle
         bbox = box(x_center - edge_length / 2, y_center - edge_height / 2,
                    x_center + edge_length / 2, y_center + edge_height / 2)
         rotated_bbox = rotate(bbox, angle_rad, origin=(x_center, y_center), use_radians=True)
         return np.array(rotated_bbox.exterior.coords, dtype=np.int32)
+
+    def erode_until_one_pixel(self, mask, erosion_kernel_size = 3):
+        """
+        Generates a grasping point eroding the mask until one pixel remains
+        
+        Args:
+            mask (bool): boolean mask of the wanted object
+            erosion_kernel_size (int): kernel size for erosion
+
+        Returns:
+            x,y (int): tuple containing the coordinates of the centered grasping point
+        """
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erosion_kernel_size, erosion_kernel_size))
+        border_thickness = 10
+        if mask.dtype != np.uint8:
+            mask = (mask.astype(np.uint8)) * 255
+
+        # padding necessary to avoid finding a point on the edge
+        current = np.pad(mask.copy(), pad_width=border_thickness, mode='constant', constant_values=0)
+        
+        while np.count_nonzero(current) > 0:
+            prev = current.copy()
+            current = cv2.erode(current, kernel)
+        coords = np.argwhere(prev > 0)
+        return (coords[0][1] - border_thickness, coords[0][0] - border_thickness)
 
 
 def store_image_with_orientation(original_image, orientation, filename):
@@ -208,9 +234,6 @@ def main():
         if i == 0:
             # get the mask of the wanted object
             mask_wanted_obj = mask
-            # get the 2D gripping point
-            point2D = (int(x+side/2),int(y+side/2))
-            
 
         # fill the square
         mask[y:y+side, x:x+side] = True
@@ -222,19 +245,24 @@ def main():
     # cv2.imshow("Random Panoptic Map", visualization_panoptic_map)
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
-    
+
     # decide the angle rad interval to compute the orientation
     angle_rad_inerval=math.pi / 16
 
     # create a Gripper Orientator object
     orientator = GripperOrientator(focal_length_x, focal_length_y, edge_length, edge_height, object_importance)
 
+    # get the 2D gripping point
+    point2D = orientator.erode_until_one_pixel(mask_wanted_obj,erosion_kernel_size = 3)
+
     # find orientation
-    orientations, best_bounding_box = orientator.find_orientation(mask_wanted_obj, point2D, panoptic_map, depth_point=0.4, angle_rad_inerval = angle_rad_inerval)
+    orientations, best_bounding_box = orientator.find_orientation(mask_wanted_obj, point2D, panoptic_map, depth_point=0.4, angle_rad_inerval = angle_rad_inerval, initial_guess_importance = 1)
     # show results
     visualization_panoptic_map = cv2.merge([visualization_panoptic_map, visualization_panoptic_map, visualization_panoptic_map])
+    visualization_panoptic_map[mask_wanted_obj] = [155,155,0]
     store_image_with_orientation(visualization_panoptic_map, orientations[0], "output/image_with_orientation.png")
     store_image_with_gripper_bbox(visualization_panoptic_map, best_bounding_box, "output/image_with_bbox.png")
+    store_image_with_point(visualization_panoptic_map, point2D, "output/image_with_grasping_point.png")
 
     # 
     #  _____ _           _                 _ _    __       _ _        _ 

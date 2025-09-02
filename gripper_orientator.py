@@ -11,18 +11,29 @@ class GripperOrientator:
     aiming to avoid obstacles detected in a scene.
 
     Attributes:
-        short_fingers_aperture_factor (float): Aperture scaling factor for short fingers.
-        long_fingers_aperture_factor (float): Aperture scaling factor for long fingers.
-        edge_length (float): Fixed gripper length (optional).
-        edge_height (float): Fixed gripper height (optional).
+        focal_length_x = focal length of the camera in pixels (optional: necesssary only if depth is used)
+        focal§_length_y = focal length of the camera in pixels (optional: necesssary only if depth is used)
+        edge_length (float): Fixed gripper length in the same measurement unit of the depth map ( if depth is not available this has fixed dimension in pixels)
+        edge_height (float): Fixed gripper height in the same measurement unit of the depth map ( if depth is not available this has fixed dimension in pixels)
+        object_importance(float): the importance of the cossision with the object that needs to be gripped.(default 0 means it is important as any other object,
+        -1 is the minimum importancew( not important at all) while the maximum value can be any)
     """
 
-    def __init__(self, short_fingers_aperture_factor=None, long_fingers_aperture_factor=None,
-                 edge_length=None, edge_height=None):
-        self.short_fingers_aperture_factor = short_fingers_aperture_factor
-        self.long_fingers_aperture_factor = long_fingers_aperture_factor
-        self.edge_length = edge_length
-        self.edge_height = edge_height
+    def __init__(self, 
+                 edge_length, edge_height,
+                 focal_length_x =None , focal_length_y =None,
+                 object_importance = 0):
+        
+        self.focal_length_x = focal_length_x
+        self.focal_length_y = focal_length_y
+
+        self.edge_length_x = edge_length
+        self.edge_height_y = edge_height
+
+        self.object_importance = object_importance
+
+        self.edge_height_y_pixels = None
+        self.edge_length_x_pixels = None
 
     def find_orientation(self, mask, point2d, panoptic_map, depth_point=None,
                          angle_rad_inerval=math.pi / 18):
@@ -42,14 +53,17 @@ class GripperOrientator:
                 - (best_vector, opposite_vector) as unit vectors in camera plane.
                 - best_bounding_box (np.ndarray): Pixel coordinates of gripper edges.
         """
+        
 
         # Combine all panoptic instance masks into one obstacle mask
         mask_obstacles = np.zeros(mask.shape, dtype=bool)
         for instance in panoptic_map:
             mask_obstacles |= instance['segmentation']
 
+        
+        
         # PCA to find the main object axis
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        contours, _ = cv2.findContours((mask.astype(np.uint8)) * 255, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         contour = max(contours, key=cv2.contourArea)
         data_pts = contour.reshape(-1, 2).astype(np.float32)
         _, eigenvectors = cv2.PCACompute(data_pts, mean=np.array([]))
@@ -57,10 +71,11 @@ class GripperOrientator:
         init_angle_rad = math.atan2(direction[1], direction[0])
 
         # Initial bounding box based on PCA angle
-        edges = self.find_gripper_edges(point2d, depth_point, init_angle_rad)
-        mask_gripper = np.zeros(mask.shape, dtype=np.uint8)
+        # Create the bounding box of the gripper
+        edges = self.find_gripper_edges(point2d, depth_point, init_angle_rad)   
+        mask_gripper = np.zeros(mask_obstacles.shape, dtype=np.uint8)
         cv2.fillPoly(mask_gripper, [edges], color=1)
-        best_score = self.compute_score(mask_gripper, mask_obstacles)
+        best_score = self.compute_score(mask_gripper, mask, mask_obstacles)
         best_angle_rad = init_angle_rad
         best_bounding_box = edges
 
@@ -68,10 +83,9 @@ class GripperOrientator:
         for angle_offset in np.arange(-math.pi / 2, math.pi / 2, angle_rad_inerval):
             angle_rad = init_angle_rad + angle_offset
             edges = self.find_gripper_edges(point2d, depth_point, angle_rad)
-            mask_gripper = np.zeros(mask.shape, dtype=np.uint8)
+            mask_gripper = np.zeros(mask_obstacles.shape, dtype=np.uint8)
             cv2.fillPoly(mask_gripper, [edges], color=1)
-
-            score = self.compute_score(mask_gripper, mask_obstacles)
+            score = self.compute_score(mask_gripper, mask, mask_obstacles)
             if score < best_score:
                 best_score = score
                 best_angle_rad = angle_rad
@@ -81,13 +95,17 @@ class GripperOrientator:
 
         return (vec_camera, -vec_camera), best_bounding_box
 
-    def compute_score(self, mask_gripper, mask_obstacles):
+    def compute_score(self, mask_gripper, mask, mask_obstacles):
         """
-        Computes score = (area of gripper mask overlapping obstacles) / (total gripper area).
+        Computes score = (area of gripper mask overlapping obstacles) + object_importance * area of gripper mask overlapping gripping object
         Lower is better.
         """
-        intersection = mask_gripper[mask_obstacles]
-        return np.sum(intersection) / np.sum(mask_gripper)
+        bool_gripper_mask = mask_gripper > 0
+        intersection_all = bool_gripper_mask[mask_obstacles]
+        print(np.sum(intersection_all))
+        intersection_object = bool_gripper_mask[mask]
+        return np.sum(intersection_all) + (max(self.object_importance, -1) * np.sum(intersection_object))
+
 
     def find_gripper_edges(self, point_camera_frame, depth_point, angle_rad):
         """
@@ -104,13 +122,15 @@ class GripperOrientator:
         x_center, y_center = point_camera_frame
 
         # Determine gripper dimensions
-        if self.edge_height and self.edge_length:
-            edge_length = self.edge_length
-            edge_height = self.edge_height
-        elif self.short_fingers_aperture_factor and self.long_fingers_aperture_factor:
-            edge_length = self.short_fingers_aperture_factor * depth_point * 2
-            edge_height = self.long_fingers_aperture_factor * depth_point * 2
+        if depth_point:
+            edge_length = (self.edge_length_x / depth_point) * self.focal_length_x
+            edge_height = (self.edge_height_y / depth_point) * self.focal_length_y
+        else:
+            edge_length = self.edge_length_x
+            edge_height = self.edge_height_y
 
+        self.edge_length_x_pixels = edge_length
+        self.edge_height_y_pixels = edge_height
         # Create and rotate rectangle
         bbox = box(x_center - edge_length / 2, y_center - edge_height / 2,
                    x_center + edge_length / 2, y_center + edge_height / 2)
@@ -157,8 +177,67 @@ def store_image_with_gripper_bbox(original_image, gripper_bbox, filename):
 
 
 # Usage example
-def main():
+import random
 
+def main():
+    # set bounding box dimension
+    edge_length = 0.2 #meters
+    edge_height = 0.1 #meters
+
+    # set focal length 
+    focal_length_x = 500 #pixels
+    focal_length_y = 500 #pixels
+
+    # decide object importance
+    object_importance = 1 # min = -1 max can be any default is 0 (means every obj has the same importance)
+    
+    # create the panoptic map
+    number_of_masks = 5
+    image_size = 512
+    min_mask_size = 50
+    max_mask_size = 200
+    panoptic_map = []
+    visualization_panoptic_map = np.zeros((image_size, image_size), dtype=bool)
+    for i in range(number_of_masks):
+        mask = np.zeros((image_size, image_size), dtype=bool)
+        side = random.randint(min_mask_size, max_mask_size)
+        
+        # pick top-left corner (ensuring square fits in image)
+        x = random.randint(0, image_size - side)
+        y = random.randint(0, image_size - side)
+
+        if i == 0:
+            # get the mask of the wanted object
+            mask_wanted_obj = mask
+            # get the 2D gripping point
+            point2D = (int(x+side/2),int(y+side/2))
+            
+
+        # fill the square
+        mask[y:y+side, x:x+side] = True
+        visualization_panoptic_map |= mask
+        panoptic_map.append({'segmentation' : mask})
+
+    visualization_panoptic_map = (visualization_panoptic_map.astype(np.uint8)) * 255
+    # # Show using OpenCV
+    # cv2.imshow("Random Panoptic Map", visualization_panoptic_map)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+    
+    # decide the angle rad interval to compute the orientation
+    angle_rad_inerval=math.pi / 16
+
+    # create a Gripper Orientator object
+    orientator = GripperOrientator(focal_length_x, focal_length_y, edge_length, edge_height, object_importance)
+
+    # find orientation
+    orientations, best_bounding_box = orientator.find_orientation(mask_wanted_obj, point2D, panoptic_map, depth_point=0.4, angle_rad_inerval = angle_rad_inerval)
+    # show results
+    visualization_panoptic_map = cv2.merge([visualization_panoptic_map, visualization_panoptic_map, visualization_panoptic_map])
+    store_image_with_orientation(visualization_panoptic_map, orientations[0], "output/image_with_orientation.png")
+    store_image_with_gripper_bbox(visualization_panoptic_map, best_bounding_box, "output/image_with_bbox.png")
+
+    # 
     #  _____ _           _                 _ _    __       _ _        _ 
     # |_   _| |__   __ _| |_   ___    __ _| | |  / _| ___ | | | _____| |
     #   | | | '_ \ / _` | __| / __|  / _` | | | | |_ / _ \| | |/ / __| |

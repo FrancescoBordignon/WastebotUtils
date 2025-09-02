@@ -102,7 +102,6 @@ class GripperOrientator:
         """
         bool_gripper_mask = mask_gripper > 0
         intersection_all = bool_gripper_mask[mask_obstacles]
-        print(np.sum(intersection_all))
         intersection_object = bool_gripper_mask[mask]
         return np.sum(intersection_all) + (max(self.object_importance, -1) * np.sum(intersection_object))
 

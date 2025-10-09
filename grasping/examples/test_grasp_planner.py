@@ -4,8 +4,7 @@ import time
 import math
 import os
 import numpy as np
-import cv2
-from grasp_planner.grasp_planner import GraspPlanner, store_image_with_orientation, store_image_with_point, store_image_with_gripper_bbox
+from grasp_planner.grasp_planner import GraspPlanner, store_image_with_point, store_image_with_gripper_bbox
 
 # Support visualization function
 def colorize_mask(mask):
@@ -47,15 +46,15 @@ def main():
     os.makedirs(output_folder, exist_ok=True)
 
     # set bounding box dimension
-    gripper_width_x = 0.1 #meters (optionally set it to pixels if depth of point is set to None)
-    gripper_height_y = 0.2 #meters (optionally set it to pixels if depth of point is set to None)
+    gripper_width_x = 0.3 #meters (optionally set it to pixels if depth of point is set to None)
+    gripper_height_y = 0.15 #meters (optionally set it to pixels if depth of point is set to None)
 
     # set focal length 
     f_x = 500 #pixels
     f_y = 500 #pixels
 
     # decide object importance
-    desired_object_importance = 1 # min = 0 max can be any default is 1 (means every obj has the same importance)
+    desired_object_importance = 0.5 # min = 0 max 1 (default is o.5 which means obstacle avoidance and object gripping have the same importance)
 
     # assign a random depth to the point or give None if you want fixed size gripper dimensions
     depth_point = 0.4
@@ -70,16 +69,30 @@ def main():
     desired_object_class = 2
 
     # decide the angle rad interval to compute the orientation
-    angle_rad_inerval=math.pi / 18
+    angle_rad_interval=math.pi / 18
+
+    # decide how to evaluate the score of an orientation
+    scoring_type= "rotated_boxes" #"three_parts_mask"  #"contact_points+three_parts"
+
+    # How amany oriented masks do you mant at most
+    max_grasping_masks = 3
+
+    # Percentage of the mask belonging to gripper fingers used in scoring_type= "three_parts_mask"
+    gripper_fingers_percentage = 0.15
 
     ### EXAMPLE INPUT CREATION ###
 
     # create the panoptic map
-    class_labels = [2,5]
+    class_labels = [2,5,6]
     number_of_masks = 15
     image_size = 1500
     min_mask_size = 50
     max_mask_size = 200
+
+    SEED = 13 #33
+    print("random seed: ",SEED)
+    random.seed(SEED)
+    np.random.seed(SEED)
     mask = np.zeros((image_size, image_size), dtype=np.uint8)
     for i in range(number_of_masks):
         mask_class = class_labels[random.randint(0, len(class_labels)-1)]
@@ -93,10 +106,6 @@ def main():
         mask[y:y+side, x:x+side] = mask_class
 
     visualization_mask = colorize_mask(mask)
-    # Show using OpenCV
-    # cv2.imshow("Random Panoptic Map", visualization_mask)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
 
     # create a GraspPlanner object
     grasper = GraspPlanner()
@@ -105,27 +114,35 @@ def main():
     # get the 2D grasping points
     points = grasper.find_grasping_points(mask, desired_class = desired_object_class, criterion = criterion, depth = depth)
     points = grasper.find_grasping_points(mask, desired_class = desired_object_class, criterion = criterion, depth = depth)
-    point2D = points[0]
-    print("time to find all grasping points: ", time.time() - start)
-    # find orientation
     if len(points) > 0:
-        start = time.time()
-        orientations, best_bounding_box = grasper.find_point_orientation( mask, point2D,
-                                gripper_width_x, gripper_height_y, depth_point=depth_point, f_x = f_x, f_y = f_y,
-                                angle_rad_inerval=angle_rad_inerval, 
-                                initial_guess_importance = 1.0, desired_object_importance = desired_object_importance)
-        print("time to find the orientation: ", time.time() - start)
-        # show results
-        store_image_with_orientation(visualization_mask, orientations[0], os.path.join(output_folder,"image_with_orientation.png"))
-        store_image_with_gripper_bbox(visualization_mask, best_bounding_box, os.path.join(output_folder,"image_with_bbox.png"))
-        store_image_with_point(visualization_mask, point2D, os.path.join(output_folder,"image_with_grasping_point.png"))
+        point2D = points[0]
+        print("time to find all grasping points: ", time.time() - start)
+        # find orientation
+        if len(points) > 0:
+            start = time.time()
+            grasping_bboxes = grasper.find_point_orientation(mask = mask, point2d = point2D,
+                                    gripper_width_x = gripper_width_x, gripper_height_y = gripper_height_y, 
+                                    scoring_type=scoring_type, max_grasping_masks=max_grasping_masks,
+                                    desired_object_importance = desired_object_importance,
+                                    PCA_importance = 0.01, depth_point=depth_point, 
+                                    f_x = f_x, f_y = f_y,
+                                    angle_rad_interval=angle_rad_interval, 
+                                    gripper_fingers_percentage=gripper_fingers_percentage)
+            print("time to find the orientation: ", time.time() - start)
 
-    #  _____ _           _                 _ _    __       _ _        _ 
-    # |_   _| |__   __ _| |_   ___    __ _| | |  / _| ___ | | | _____| |
-    #   | | | '_ \ / _` | __| / __|  / _` | | | | |_ / _ \| | |/ / __| |
-    #   | | | | | | (_| | |_  \__ \ | (_| | | | |  _| (_) | |   <\__ \_|
-    #   |_| |_| |_|\__,_|\__| |___/  \__,_|_|_| |_|  \___/|_|_|\_\___(_)
-
+            # show results
+            if grasping_bboxes:
+                store_image_with_point(visualization_mask, point2D, os.path.join(output_folder,"image_with_grasping_point.png"))
+                for index, bbox in enumerate(grasping_bboxes):
+                    rotated_gripper_bbox = grasper.rotate_mask(bbox[2], bbox[1], (int(point2D[0]), int(point2D[1])))
+                    visualization_mask = store_image_with_gripper_bbox(visualization_mask, rotated_gripper_bbox, os.path.join(output_folder,"image_with_bbox.png"), color = (100+50*index,255-40*index,0))
+                
+    #                                                                                                      /|
+    #  _____ _           _                 _ _    __       _ _        _                                   / |                                                
+    # |_   _| |__   __ _| |_   ___    __ _| | |  / _| ___ | | | _____| |              ____               /  |\                                    \
+    #   | | | '_ \ / _` | __| / __|  / _` | | | | |_ / _ \| | |/ / __| |           .'      \            /   | \                                ____\  _______
+    #   | | | | | | (_| | |_  \__ \ | (_| | | | |  _| (_) | |   <\__ \_|          /      /\/          _/____|__\__                         ___/               \_____      
+    #   |_| |_| |_|\__,_|\__| |___/  \__,_|_|_| |_|  \___/|_|_|\_\___(_) _ _ ____(      `._______ _ _ \_________.'_ _ __ ____________ __ _/                           '.._ _ __ ___ _________ _
     return 0
 
 if __name__ == "__main__":

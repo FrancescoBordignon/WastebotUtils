@@ -42,44 +42,60 @@ It returns an Nx4 np.array containing points in this format [x,y,class,score] so
 
 
 3. 🧭 Compute Best Gripper Orientation
+
+Computes the best gripper orientation to grasp an object at a specific 2D point in a segmentation mask.
+Evaluates different angles by rotating a virtual gripper mask and scoring overlap with the object and obstacles.
+Supports several scoring methods, optional PCA alignment, and depth-based size scaling.
 ```bash
-(vector_pair, gripper_bbox) = planner.find_point_orientation(
-    mask=segmentation_mask,               # HxW multi class mask where dtype == np.uint8; 0 is background and n>0 == object belonging to class n
-    point2d=(x, y),                       # Minimal info (x,y) other infos like class, score etc. are ignored
-    gripper_width_x=0.4,                  # Gripper width (metrical (same unit as depth_point) 
-                                          # or pixels if depth_point is None )
+best_masks = planner.find_point_orientation(
+    mask=segmentation_mask,             # 2D binary mask (HxW, np.uint8). Foreground is the object to grasp (non-zero), 
+                                        # background is zero. Can include obstacles in non-zero values too.
+    point2d=(x, y),                      # Grasp point (x, y) on the mask. Only this point is needed.
+    
+    gripper_width_x=0.4,                # Gripper width (in meters or pixels, depending on whether depth_point is given).
+    gripper_height_y=0.2,               # Gripper height (same unit as width).
 
-    gripper_height_y=0.2,                 # Gripper height (metrical (same unit as depth_point) 
-                                          # or pixels if depth_point is None )
+    scoring_type="rotated_boxes",       # Gripper orientation evaluation method:
+                                        #   - "rotated_boxes": Simple overlap-based score
+                                        #   - "three_parts_mask": Finger/palm overlap penalties
+                                        #   - "contact_points+three_parts": Adds contact point quality to scoring
 
-    depth_point=0.4,                      # Depth value at grasp point can be in any metrical unit (meters,mm etc.) 
-                                          # but the unit must be equal to gripper_height_y and gripper_width_x. if None
-                                          # gripper_width_x gripper_height_y must be expressed in pixels
+    max_grasping_masks=1,               # Maximum number of top orientations to return (sorted by score descending).
 
-    f_x=500,                              # Camera focal length (x) in pixels
-    f_y=500,                              # Camera focal length (y) in pixels
-    angle_rad_inerval=math.pi / 18,       # Angular search interval in radians
-    initial_guess_importance=1.0,         # Weight for PCA orientation the smaller the greater importance ( min=0)
-    desired_object_importance=1.0         # Penalize overlap with the grasped object greater penalize more (min=-1)
+    desired_object_importance=0.5,      # Trade-off between object and obstacle overlap [0 (obstacles) to 1 (object)].
+    PCA_importance = 0.1,               # value between 0 and 1 determines how important is the alignement of the gripper wrt the PCA of an                                  
+                                        # instance If True, favors alignment with the object’s PCA direction.
+
+    depth_point=0.4,                    # Optional: Depth at grasp point (same unit as gripper size). If None, width/height are in pixels.
+    f_x=500,                            # Optional: Camera intrinsics (fx) for scaling gripper size from depth.
+    f_y=500,                            # Optional: Camera intrinsics (fy) for scaling gripper size from depth.
+
+    angle_rad_interval=math.pi / 18,    # Angular resolution of the rotation search (smaller = finer search).
+    gripper_fingers_percentage=0.15     # Fraction of the gripper allocated to fingers vs. palm (for scoring).
 )
 ```
 It returns
-
-vector_pair: a Tuple of forward and inverse (+180 deg) direction unit vectors. 
+```bash
+best_masks: List[Tuple[float, float, np.ndarray]]: A list of up to         
+                                                   max_grasping_masks  elements, each being a tuple:
+                - score (float): Score of the orientation.
+                - angle_rad (float): Angle (in radians) of the tested orientation. In opencv reference frame counter clockwise
+                - original_size_mask (array): HxW original mask oriented with angle 0
+```               
 
 gripper_bbox: (polygon) rotated bounding box of the gripper 
 ## 🖼️ Visualization Utilities
 Draw a Grasp Point
 ```bash
-store_image_with_point(image, point=(x, y), filename="point.png")
+image_with_points = store_image_with_point(image, points=[(x, y),(x2,y2)], filename="point.png")
 ```
 Draw Gripper Orientation
 ```bash
-store_image_with_orientation(image, orientation=vector, filename="orientation.png")
+image_with_orientation = store_image_with_orientation(image, orientation=vector, filename="orientation.png")
 ```
 Draw Gripper Bounding Box
 ```bash
-store_image_with_gripper_bbox(image, gripper_bbox=polygon, filename="bbox.png")
+image_with_gripperbbox = store_image_with_gripper_bbox(image, gripper_bbox=(polygon or mask), filename="bbox.png")
 ```
 ## Example
 There is a testing example where parameters can be tuned that generates random segmentation masks and generates grasping point + generates orientation. To run
@@ -92,18 +108,5 @@ python -m examples.test_grasp_planner
 - Depth-based orientation scoring requires valid depth_point, f_x, and f_y.
 - Depth-based grasping point detection can be done with "depth_max", "depth_min" criteria but a valid depth map must be given
 - To find orientation, the 2D point can also just be [x,y] any other field is ignored [x,y,...etc...]
-
-### Gripper Orientator
-Example usage:
-```bash
-python3 gripper_orientator.py
-```
-This is a class that finds the orientation of a gripper given the original size of the gripper , the depth of the object in camera refernce frame the 2d grasping point in pixels and the sorrounding masks(other object) the score of a given orientation is higher when the gripper mask overlaps with the given object mask and the sorrounding obects. The best score is the lower and the function find_orientation returns the orientation of the gripper that has the best score. the weight of the collision with the same object can be adjusted.
-The 2D grasping point can also be determined thanks to a simple function called erode_until_one_pixel, this class function detrmines the grasping point eroding the selected mask until it finds a centroid.
-![Alt text](output/image_with_bbox.png)
-![Alt text](output/image_with_orientation.png)
-![Alt text](output/image_with_grasping_point.png)
-
 ### 👤 Authors
 Francesco Bordignon 
-

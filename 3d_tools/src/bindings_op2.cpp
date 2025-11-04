@@ -1,7 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <opencv2/opencv.hpp>
-#include "depth_reprojector_eigen_op1_class.hpp"
+#include "depth_reprojector_eigen_op2_class.hpp"
 
 namespace py = pybind11;
 
@@ -78,9 +78,9 @@ PYBIND11_MODULE(depth_reprojector, m) {
         py::arg("R") = py::array(),  // Optional: defaults to identity
         py::arg("T") = py::array())  // Optional: defaults to zero vector
 
-        .def("reprojectDepth", [](DepthReprojector& self, py::array depth, double scale_factor) {
+        .def("reprojectDepth", [](DepthReprojector& self, py::array depth) {
             cv::Mat depth_bind = numpy_to_mat(depth);
-            cv::Mat result = self.reprojectDepth(depth_bind, scale_factor);
+            cv::Mat result = self.reprojectDepth(depth_bind);
 
             return py::array_t<double>(
                 { result.rows, result.cols },

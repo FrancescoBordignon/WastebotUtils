@@ -15,7 +15,7 @@ optimization_flags = ['-O3', '-flto']
 ext_modules = [
     Pybind11Extension(
         "depth_reprojector",
-        ["src/bindings.cpp", "src/depth_reprojector_eigen_op1_class.cpp"],
+        ["src/bindings_op2.cpp", "src/depth_reprojector_eigen_op2_class.cpp"],
         extra_compile_args=opencv_cflags + optimization_flags,
         extra_link_args=opencv_libs + ['-flto'],  # link time optimization
         include_dirs=[

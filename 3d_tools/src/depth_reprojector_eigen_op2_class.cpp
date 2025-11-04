@@ -4,7 +4,7 @@
 #include <opencv2/opencv.hpp>
 #include <omp.h>
 #include <optional>
-#include "depth_reprojector_eigen_op1_class.hpp"
+#include "depth_reprojector_eigen_op2_class.hpp"
 
 
 // compile with g++ -O3 -march=native -ffast-math -DNDEBUG     depth_reprojector_eigen_op1_class.cpp -o depth_rep     `pkg-config --cflags --libs opencv4`     -I /usr/include/eigen3
@@ -71,19 +71,30 @@ DepthReprojector::DepthReprojector(
     } else {
         this->T_eigen = Eigen::RowVector3d::Zero();
     }
-    this->K1_eigen_inverse = K1_eigen.inverse();
-    
+    this->K1_inverse_eigen = K1_eigen.inverse();
 
+    // create the 4x4 Reprojection matrix
+    this->RepMat_eigen = Eigen::Matrix4d::Zero();
+    this->RepMat_eigen.block<3,3>(0,0) = this-> R_eigen;
+    this->RepMat_eigen.block<3,1>(0,3) = this->T_eigen;
+    this->RepMat_eigen(3,3) = 1.0;
+
+    Eigen::Matrix4d  K1_inverse_eigen_new = Eigen::Matrix4d::Zero();
+    K1_inverse_eigen_new.block<3,3>(0,0) = this->K1_inverse_eigen;
+    K1_inverse_eigen_new(3,3) = 1.0;
+
+    this->RepMat_eigen = this-> RepMat_eigen * K1_inverse_eigen_new;
+    
+    Eigen::Matrix4d  K2_eigen_new = Eigen::Matrix4d::Zero();
+    K2_eigen_new.block<3,3>(0,0) = this->K2_eigen;
+    K2_eigen_new(3,3) = 1.0;
+    this->RepMat_eigen = K2_eigen_new * this->RepMat_eigen;
+    
     num_points = this->dim1.height * this->dim1.width;
-    this->temp_points.reserve(num_points);
-    this->uvz_points_matrix.resize(3, num_points); 
-    this->uv1_homogeneous.resize(3, num_points);
-    this->uv1_homogeneous.row(2).setOnes();
-    this->uv1_matrix.resize(2, num_points);
-    this->z_vector.resize(num_points);
-    this->points2_3d.resize(3, num_points);
+    this->points1_eigen.resize(4, num_points);
+    this->points1_eigen.setOnes();
+    this->points2_eigen.resize(4, num_points);
     this->depth_1_eigen.resize(this->dim1.height, this->dim1.width);
-    this->depth1_scaled.resize(this->dim1.height, this->dim1.width);
     this->depth2_raw = cv::Mat::zeros(dim2, CV_64FC1); 
 
 }
@@ -95,17 +106,13 @@ void DepthReprojector::rectifyImage1(cv::Mat& image)
 
 void DepthReprojector::distortImage2(cv::Mat& image)
 {
-    std::cout<<" distortImage2 TODO"<<std::endl
+    std::cout<<" distortImage2 TODO "<<std::endl;
 }
 
-cv::Mat DepthReprojector::reprojectDepth(cv::Mat& depth1_raw, double scale_factor)
+cv::Mat DepthReprojector::reprojectDepth(cv::Mat& depth1_raw)
 {
     //Re initialize variables 
-    this->z_vector.setZero();
-    this->uv1_homogeneous.topRows(2).setZero(); 
     this->depth2_raw = cv::Mat::zeros(depth2_raw.size(), depth2_raw.type());
-
-
 
     // If the distortion coefficients were given undistort the first image
     if(!this->dist1.empty())
@@ -117,60 +124,41 @@ cv::Mat DepthReprojector::reprojectDepth(cv::Mat& depth1_raw, double scale_facto
         cv::cv2eigen(depth1_raw, this->depth_1_eigen);
     }
 
-
-    // If scale_factor scale the depth to meters millimiters etc
-
-    this->depth1_scaled = this->depth_1_eigen * scale_factor;
-
     // Get not 0 or nan values from the depth map
     int idx = 0;
-    for (int v = 0; v < this->depth1_scaled.rows(); ++v) {
-        for (int u = 0; u < this->depth1_scaled.cols(); ++u) {
-            double z = this->depth1_scaled(v, u);
+    double z = 0.0;
+    for (int v = 0; v < this->depth_1_eigen.rows(); ++v) {
+        for (int u = 0; u < this->depth_1_eigen.cols(); ++u) {
+            z = this->depth_1_eigen(v, u);
+            
             if (z > 0.0 && !std::isnan(z)) {
-                this->uv1_homogeneous(0, idx) = u;
-                this->uv1_homogeneous(1, idx) = v;
-                this->z_vector(idx) = z;
+                this->points1_eigen(0, idx) = u*z;
+                this->points1_eigen(1, idx) = v*z;
+                this->points1_eigen(2, idx) = z;
                 ++idx;
             }
         }
     }
-
     
+    // Reproject from first camera to second camera plane
+    this->points2_eigen.noalias() = this->RepMat_eigen * this->points1_eigen;
 
-    // Step 2: Unproject to normalized camera coordinates
-    Eigen::Matrix3Xd rays = this->K1_eigen_inverse * this->uv1_homogeneous;  // 3xN //11ms
-
-    // Step 3: Scale by depth
-    Eigen::Matrix3Xd points1_3d = rays.array().rowwise() * this->z_vector.transpose().array(); //11ms
-
-    //Project in new space
-    this->points2_3d.noalias() = this->R_eigen * points1_3d;
-    this->points2_3d.colwise() += this->T_eigen; //both ops 15ms
-    //Project in new camera plane
-    Eigen::Matrix3Xd projected = this->K2_eigen * this->points2_3d;  // 3xN
-
-    // Normalize by third row (homogeneous to pixel coordinates)
-    Eigen::Matrix3Xd projected_uv(3, projected.cols());
-    projected_uv.row(0) = projected.row(0).array() / projected.row(2).array();  // u'
-    projected_uv.row(1) = projected.row(1).array() / projected.row(2).array();  // v'
-    projected_uv.row(2) = projected.row(2);
+    // Transsform to homogeneous (pixel) coordinates
+    this->points2_eigen.topRows(2).array().rowwise() /= this->points2_eigen.row(2).array();
     
     //reconstruct the image as cv::Mat
     int u, v;
-    double z;
-    for (int i = 0; i < projected_uv.cols(); ++i) {
-        u = static_cast<int>(std::round(projected_uv(0, i)));
-        v = static_cast<int>(std::round(projected_uv(1, i)));
-        z = projected_uv(2, i);  // depth
-
-        if (u >= 0 && u < this->depth2_raw.cols && v >= 0 && v < this->depth2_raw.rows && z > 0.0f && !std::isnan(z)) {
+    for (int i = 0; i < idx; ++i) {
+        u = static_cast<int>(std::round(this->points2_eigen(0, i)));
+        v = static_cast<int>(std::round(this->points2_eigen(1, i)));
+        z = this->points2_eigen(2, i);  // depth
+        if (u >= 0 && u < this->depth2_raw.cols && v >= 0 && v < this->depth2_raw.rows && !std::isnan(z)) {
             this->depth2_raw.at<double>(v, u) = z;
         }
     }
     
     // If the distortion coefficients were given distort the second image
-    if(!this->dist1.empty())
+    if(!this->dist2.empty())
     {   
         distortImage2(this->depth2_raw);
     }

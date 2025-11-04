@@ -5,9 +5,10 @@ import time
 
 
 def main():
-    depth_path = "/home/ecobot-3/Desktop/weight_test_set_IWAMO/depth0/000037.png"
+    depth_path = "/home/ecobot-3/Desktop/datasets/weight_test_set_IWAMO/depth0/000037.png"
     depth1 = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
     depth1 = depth1.astype(np.float64)
+    
     K1 = np.array([
         [751.4531860351562, 0.0, 644.3215942382812],
         [0.0, 751.22265625, 342.1682434082031],
@@ -27,9 +28,9 @@ def main():
     ], dtype=np.float64)
 
     T = np.array([
-        [ 0.09649281],
-        [-0.07845502],
-        [ 0.05230814]
+        [ 96.49281],
+        [-78.45502],
+        [ 52.30814]
     ], dtype=np.float64)
 
     dim1 = Size(1280, 720) #width, height
@@ -40,7 +41,7 @@ def main():
         K1, K2, dim1,dim2, R = R, T = T
     )
     start = time.time()
-    depth2 = reprojector.reprojectDepth(depth1, 0.001)
+    depth2 = reprojector.reprojectDepth(depth1)
     print("required_time: ", time.time() -start)
     depth2_vis = cv2.normalize(depth2, None, 0, 255, cv2.NORM_MINMAX)
     depth2_vis = depth2_vis.astype(np.uint8)

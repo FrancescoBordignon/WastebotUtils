@@ -23,20 +23,17 @@ private:
     cv::Mat rectified_image_1;
     cv::Mat depth2_raw;
 
+    
     Eigen::Matrix3d K1_eigen;
     Eigen::Matrix3d K2_eigen;
     Eigen::Matrix3d R_eigen;
     Eigen::Vector3d T_eigen;
-    Eigen::MatrixXd depth_1_eigen;
-    Eigen::MatrixXd depth1_scaled;
-    Eigen::Matrix2Xd uv1_matrix;   
-    Eigen::VectorXd z_vector;        
-    Eigen::Matrix3Xd uvz_points_matrix;
-    Eigen::Matrix3d K1_eigen_inverse;
-    Eigen::Matrix3Xd uv1_homogeneous; 
-    Eigen::Matrix3Xd points2_3d;
+    Eigen::Matrix4d RepMat_eigen;
+    Eigen::MatrixXd depth_1_eigen;         
+    Eigen::Matrix3d K1_inverse_eigen;
+    Eigen::Matrix4Xd points1_eigen; 
+    Eigen::Matrix4Xd points2_eigen;
 
-    std::vector<Eigen::Vector3d> temp_points; 
     int num_points;
 
     void rectifyImage1(cv::Mat& image);
@@ -56,7 +53,7 @@ public:
         const cv::Mat& T = cv::Mat()
     );
 
-    cv::Mat reprojectDepth(cv::Mat& depth1_raw, double scale_factor);
+    cv::Mat reprojectDepth(cv::Mat& depth1_raw);
 };
 
 #endif // DEPTHREPROJECTOR_H

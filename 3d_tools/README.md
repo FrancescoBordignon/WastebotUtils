@@ -50,8 +50,7 @@ reprojector = DepthReprojector(
     ], dtype=np.float64) # Translation vector in meters (default: 0 0 0)
 )
 depth2 = reprojector.reprojectDepth(
-    depth1, # souce depth 
-    scale_factor # The depth can be in meters mm cm etc but the pipeline works in meters so the scale factor must reconduct the depth to meters (eg. if depth is in mm scale_factor must be 0.001)
+    depth1 # souce depth map
     )
 ```
 Then run with
@@ -63,11 +62,13 @@ python3 -m your_script
 A usage example can be foud in 3d_tools/examples. Change the parameters and the path to your input depth map. Then
 ```bash
 cd 3d_tools
-python3 -m examples test_reprojector 
+python3 -m examples.test_reprojector 
 ```
 ### 📝 Notes
 - If you can't see the depth ensure R T and camera matrices are correctly set and that the distortion coefficients are in opencv format
 - R T dist1 and dist2 are optional defalut values are the identity matrix 0 0 0 trnslation and 0 distortion
+- T must be in the same measurement unit as the depth values (eg millimeters)
+- The running time with 1200 x 1200 images on intel i5 processor is arround 35ms for the function reprojectDepth allowing for real time computation. If the function is used directly in a c++ program the inference time should be arround 27 ms in the same conditions
 ## 🎯 TODO
 - For now giving dist2 doesn't have any effect, ideally the function distortImage2 should be implemented souch that it distorts the output depth map in order to have a depth map distorted as if it is seen from the distorted camera2 lens. For now image2 (the output depth map) is simpy undistorted which fits most cases.
 

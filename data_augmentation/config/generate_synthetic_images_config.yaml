@@ -1,0 +1,32 @@
+input_arguments:
+  size_training: 10
+  size_validation: 15
+  mean_obj: 17
+  std_obj: 8
+  camera_idx: 1
+  repetition: false
+  visualize: false
+
+
+
+  out_dir: /home/toffanin/wastebot/segmentation_server/cut_and_paste_results_scoasse/orbbec_cut_and_paste
+  background_dir: /home/toffanin/wastebot/datasets/conveyor_belt_images/orbbec_conveyor_belts
+  image_folder_name : 'rgb0'
+  mask_folder_name : 'mask0_processed'
+  validation_percentage : 0.15
+  seed: 1747844665
+class_distribution:
+  paper: # class name
+    label: 1 # id of the class  between 0 and 255
+    prob: 0.425 # probability of appearance of objects belonging to this class 
+    root_data: [/home/toffanin/wastebot/datasets/real_dataset/paper] # the data for this sub class will be stored in root_data/image_folder_name and root_data/mask_folder_name
+  cardboard:
+    label: 2
+    prob: 0.325
+    root_data: [/home/toffanin/wastebot/datasets/real_dataset/cardboard]
+  plastic:
+    label: 3
+    prob: 0.25
+    root_data: [/home/toffanin/wastebot/datasets/real_dataset/plastic]
+# ...
+

@@ -54,7 +54,7 @@ def main():
     f_y = 500 #pixels
 
     # decide object importance
-    desired_object_importance = 0.5 # min = 0 max 1 (default is o.5 which means obstacle avoidance and object gripping have the same importance)
+    desired_object_importance = 1.0 # min = 0 max 1 (default is o.5 which means obstacle avoidance and object gripping have the same importance)
 
     # assign a random depth to the point or give None if you want fixed size gripper dimensions
     depth_point = 0.4
@@ -89,7 +89,7 @@ def main():
     min_mask_size = 50
     max_mask_size = 200
 
-    SEED = 13 #33
+    SEED = random.randint(2,150)#13 #33
     print("random seed: ",SEED)
     random.seed(SEED)
     np.random.seed(SEED)
@@ -124,10 +124,11 @@ def main():
                                     gripper_width_x = gripper_width_x, gripper_height_y = gripper_height_y, 
                                     scoring_type=scoring_type, max_grasping_masks=max_grasping_masks,
                                     desired_object_importance = desired_object_importance,
-                                    PCA_importance = 0.01, depth_point=depth_point, 
+                                    PCA_importance = 1.0, depth_point=depth_point, 
                                     f_x = f_x, f_y = f_y,
                                     angle_rad_interval=angle_rad_interval, 
-                                    gripper_fingers_percentage=gripper_fingers_percentage)
+                                    gripper_fingers_percentage=gripper_fingers_percentage,
+                                    min_object_size = 200)
             print("time to find the orientation: ", time.time() - start)
 
             # show results
@@ -136,13 +137,15 @@ def main():
                 for index, bbox in enumerate(grasping_bboxes):
                     rotated_gripper_bbox = grasper.rotate_mask(bbox[2], bbox[1], (int(point2D[0]), int(point2D[1])))
                     visualization_mask = store_image_with_gripper_bbox(visualization_mask, rotated_gripper_bbox, os.path.join(output_folder,"image_with_bbox.png"), color = (100+50*index,255-40*index,0))
-                
-    #                                                                                                      /|
-    #  _____ _           _                 _ _    __       _ _        _                                   / |                                                
-    # |_   _| |__   __ _| |_   ___    __ _| | |  / _| ___ | | | _____| |              ____               /  |\                                    \
-    #   | | | '_ \ / _` | __| / __|  / _` | | | | |_ / _ \| | |/ / __| |           .'      \            /   | \                                ____\  _______
-    #   | | | | | | (_| | |_  \__ \ | (_| | | | |  _| (_) | |   <\__ \_|          /      /\/          _/____|__\__                         ___/               \_____      
-    #   |_| |_| |_|\__,_|\__| |___/  \__,_|_|_| |_|  \___/|_|_|\_\___(_) _ _ ____(      `._______ _ _ \_________.'_ _ __ ____________ __ _/                           '.._ _ __ ___ _________ _
+    #                                                                                                                                                                                    ___________
+    #                                                                                                                                                                              /|   /          /              
+    #                                                                                                                                         ___ .--.                           /  |  |          |
+    #                                                                                                      /|                                /   V __ \                        /    |  |          |      ________
+    #  _____ _           _                 _ _    __       _ _        _                                   / |                                |/| /\\ \|                    _ /_____ |  \___________\    |    _  |
+    # |_   _| |__   __ _| |_   ___    __ _| | |  / _| ___ | | | _____| |              ____               /  |\                                 \_\ \\                       \______\|________||_________/   |_| | 
+    #   | | | '_ \ / _` | __| / __|  / _` | | | | |_ / _ \| | |/ / __| |           .'      \            /   | \                                ____| \_______                \                                 /
+    #   | | | | | | (_| | |_  \__ \ | (_| | | | |  _| (_) | |   <\__ \_|          /      /\/          _/____|__\__                         ___/               \_______        `.    0   0   0   0   0   0     |
+    #   |_| |_| |_|\__,_|\__| |___/  \__,_|_|_| |_|  \___/|_|_|\_\___(_) _ _ ____(      '._______ _ _ \_________.'_ _ __ ____________ __ _/                           '.._ _ __ `. __________________________/
     return 0
 
 if __name__ == "__main__":

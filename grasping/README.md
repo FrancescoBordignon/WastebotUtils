@@ -64,14 +64,15 @@ best_masks = planner.find_point_orientation(
 
     desired_object_importance=0.5,      # Trade-off between object and obstacle overlap [0 (obstacles) to 1 (object)].
     PCA_importance = 0.1,               # value between 0 and 1 determines how important is the alignement of the gripper wrt the PCA of an                                  
-                                        # instance If True, favors alignment with the object’s PCA direction.
+                                        # instance (it affects at most the 50% of the score)
 
     depth_point=0.4,                    # Optional: Depth at grasp point (same unit as gripper size). If None, width/height are in pixels.
     f_x=500,                            # Optional: Camera intrinsics (fx) for scaling gripper size from depth.
     f_y=500,                            # Optional: Camera intrinsics (fy) for scaling gripper size from depth.
 
     angle_rad_interval=math.pi / 18,    # Angular resolution of the rotation search (smaller = finer search).
-    gripper_fingers_percentage=0.15     # Fraction of the gripper allocated to fingers vs. palm (for scoring).
+    gripper_fingers_percentage=0.15,    # Fraction of the gripper allocated to fingers vs. palm (for scoring).
+    min_object_size=200                 #pixels of minimum spickable object size
 )
 ```
 It returns
@@ -108,5 +109,9 @@ python -m examples.test_grasp_planner
 - Depth-based orientation scoring requires valid depth_point, f_x, and f_y.
 - Depth-based grasping point detection can be done with "depth_max", "depth_min" criteria but a valid depth map must be given
 - To find orientation, the 2D point can also just be [x,y] any other field is ignored [x,y,...etc...]
+- with a reasonable grasping box dimension (700x400 pixels on a 1920x1200 image) some parameters were tested and the best results obtined are:
+-- three_parts: PCA_importance = 1.0 desired_object_importance = 0.15
+-- contact_points+three_parts: PCA_importance = 1.0 desired_object_importance = 0.2
+-- rotated_boxes: PCA_importance = 0.5 desired_object_importance = 0.7
 ### 👤 Authors
 Francesco Bordignon 

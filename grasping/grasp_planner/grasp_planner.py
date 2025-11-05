@@ -113,7 +113,8 @@ class GraspPlanner:
         f_x=None,
         f_y=None,
         angle_rad_interval=math.pi / 18,
-        gripper_fingers_percentage=0.15
+        gripper_fingers_percentage=0.15,
+        min_object_size = 200
     ):
         """
         Determines the optimal 2D orientation for a robotic gripper to grasp an object at a given point.
@@ -145,12 +146,15 @@ class GraspPlanner:
             f_y (int, optional): Vertical focal length (in pixels) for depth scaling.
             angle_rad_interval (float): Angular step (in radians) for rotating the gripper and evaluating orientation.
             gripper_fingers_percentage (float): Ratio of the gripper mask allocated to fingers (vs. palm) for scoring purposes.
+            min_object_size (int): pixels of minimum spickable object size
 
         Returns:
             best_masks List[Tuple[float, float, np.ndarray]]: A list of up to `max_grasping_masks` elements, each being a tuple:
                 - score (float): Score of the orientation.
                 - angle_rad (float): Angle (in radians) of the tested orientation. In opencv reference frame counter clockwise
                 - original_size_mask (np.ndarray): HxW original mask oriented with angle 0
+                - point2d (tuple): Coordinates (x, y) of the target grasping point on the mask. 
+                or None if nothing found
                 
         """
         # Sanity checks
@@ -179,6 +183,9 @@ class GraspPlanner:
         mask_obj_bool = self.__extract_instance_from_point(mask, (x,y))
         mask_obj = mask_obj_bool.astype(np.uint8)
 
+        if np.count_nonzero(mask_obj) < min_object_size:
+            return None
+
         # Take the collision mask
         mask_collisions = ((~mask_obj_bool) & (mask > 0)).astype(np.uint8)
         #print("time to np where: ", time.time() - start)
@@ -190,10 +197,18 @@ class GraspPlanner:
             edge_width = gripper_width_x
             edge_height = gripper_height_y
         
+
+        # If the point is too close to the border just discard it TODO implement custom logic
+        min_dist_from_edge  = max(edge_width//2, edge_height//2)
+        if (x < min_dist_from_edge or x > mask.shape[1] - min_dist_from_edge or
+            y < min_dist_from_edge or y > mask.shape[0] - min_dist_from_edge):
+            return None
+
+
         #start = time.time()
         # Draw mask depending on scoring_type
         if scoring_type == "three_parts_mask" or scoring_type == "contact_points+three_parts":
-            # mask divided in three and asign to each pixel a value 1,2,3
+            # mask divided in three and asign to each pixel a value 1,2,3 --> 1 = finger1, 2 = palm, 3 = finger2
             side_width = int(edge_width * gripper_fingers_percentage)
             mask_gripper_original = self.__generate_split_rectangular_mask(image_size = mask.shape, center = (x,y), rect_width = edge_width, rect_height = edge_height, side_width = side_width)
         elif scoring_type == "rotated_boxes":
@@ -250,9 +265,9 @@ class GraspPlanner:
             if score > 0.0:
             # Adjust score based on pca (if required) (best score when pca is aligned with short gripper edge)
                 if initial_guess_angle is not None:
-                    alignement_score = max(self.__angular_similarity(initial_guess_angle + (np.pi/2), angle_rad), self.__angular_similarity(initial_guess_angle + (np.pi*(3/2)), angle_rad))
-                    score = min(1.0,score+ PCA_importance*alignement_score) # score can be affected (at most by 1%) by pca alignement
-                entry = (score, angle_rad, mask_gripper_original, (x,y))
+                    alignement_score = self.__angular_similarity_90_deg(initial_guess_angle + (np.pi/2), angle_rad)
+                    score = (score+ PCA_importance*alignement_score)/(1+alignement_score)
+                entry = (score, angle_rad, mask_gripper_original, point2d)
                 if len(best_masks) < max_grasping_masks:
                     heapq.heappush(best_masks, entry)
                 else:
@@ -458,11 +473,13 @@ class GraspPlanner:
 
         return instance_mask
 
-    def __angular_similarity(self,a, b):
-        # Compute angular distance in range [0, π]
-        diff = abs((a - b + np.pi) % (2 * np.pi) - np.pi)
-        # Normalize: 0 distance → 1 similarity, π distance → 0 similarity
-        return 1 - (diff / np.pi)
+    def __angular_similarity_90_deg(self,a, b):
+        # a, b should be in radians
+        # Compute angular distance in range [0, π/2]
+        diff = abs((a - b + (np.pi/2)) % (np.pi) - np.pi/2)
+        # Normalize: 0 distance → 1 = 100% similarity, π/2 distance → 0 = 0% similarity
+        return 1 - (diff / (np.pi/2))
+
     
     def rotate_mask(self,mask, angle_radians, center_point):
         """
@@ -498,16 +515,15 @@ class GraspPlanner:
         return rotated_mask
 
     def evaluate_score_three_layers(self, mask_obj, mask_collisions, mask_gripper, desired_object_importance, palm_area, fingers_area):
-        intersection_palm_object = np.sum(mask_obj[mask_gripper==2])
-        intersection_all_collision = np.sum(mask_collisions[mask_gripper>0])
-        intersection_fingers_object = np.logical_and(
-                                        mask_obj,
-                                        (mask_gripper == 1) | (mask_gripper == 3)
-                                    ).sum()
+        intersection_palm_object = np.count_nonzero(mask_obj[mask_gripper==2])
+        object_area = np.count_nonzero(mask_obj)
+        intersection_all_collision = np.count_nonzero(mask_collisions[mask_gripper>0])
+        intersection_fingers_object = np.count_nonzero(mask_obj & ((mask_gripper == 1) | (mask_gripper == 3)))
+                                  
         if palm_area == 0:
             intersection_palm_object_score = 0.0
         else:
-            intersection_palm_object_score = intersection_palm_object / palm_area
+            intersection_palm_object_score = max(intersection_palm_object / palm_area, intersection_palm_object / object_area)
         if fingers_area == 0:
             intersection_fingers_object_score = 0.0
         else:

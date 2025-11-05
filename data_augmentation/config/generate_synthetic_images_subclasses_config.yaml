@@ -1,0 +1,31 @@
+input_arguments:
+  size_training: 7 # number of images you want in the training set
+  size_validation: 2 # number of images you want in the validation set
+  mean_obj: 15 # mean number of objects per image
+  std_obj: 6 # standard deviation of the number of objects desired per image
+  camera_idx: 1 # based on this index you can decide on how to preprocess the image, if you have specific preprocessing needs please modify the code accordingly
+  repetition: false # false = the same object cannot appear more than one time in an image
+  visualize: false # visualize results while creating them (set false on big size dataset)
+
+
+
+  out_dir: /home/toffanin/wastebot/segmentation_server/cut_and_paste_results_scoasse/RCNN_cut_and_paste # directory where you want your results saved
+  background_dir: /home/toffanin/wastebot/datasets/conveyor_belt_images/basler_conveyor_belts # directory containing background images
+  image_folder_name : 'rgb1' # name of the folder containing the single images
+  mask_folder_name : 'mask1_processed' # name of the folder containing the single masks
+  validation_percentage : 0.15 # percentage of dataset assigned to the validation images (the rest goes for thraining images)
+  seed: 1747844665 # random seed ( if not set it depends on current machine time)
+class_distribution:
+  carta-patinata: # sub-class name
+    supercategory: 'paper' # classs name
+    label: 1 # label id (the output mask will have the same id)
+    prob: 0.071 # probability of appearance in an image
+    root_data: [/home/toffanin/wastebot/datasets/real_dataset/paper/carta-patinata] # the data for this sub class will be stored in root_data/image_folder_name and root_data/mask_folder_name
+  carta-ufficio-mista:
+    supercategory: 'paper'
+    label: 2
+    prob: 0.071
+    root_data: [/home/toffanin/wastebot/datasets/real_dataset/paper/carta-ufficio-mista]
+# ...
+
+

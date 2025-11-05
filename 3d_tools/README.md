@@ -2,6 +2,14 @@
 ## 🎥 depth_reprojector
 ### 📄 Overview 
 This is a c++ class  that, given a depth map, and the cameras intrinsics and extrinsics projects the depth map from camera 1 image plane to camera 2 image plane. The class is also binded using pybind in order to be usable in a python program.
+
+An example of the reprojection from a 1200x720 depth map capture using an orbbec femto mega camera and reprojected in the image plane of a basler 1920x1200 camera located in a really close positioncan be seen in these figures:
+
+<p align="center">
+  <img src="examples/example_images/original_depth_colored.png" alt="Image 1" width="45%">
+  <img src="examples/example_images/reprojected_depth_colored.png" alt="Image 2" width="45%">
+</p>
+Here the image is reprojected using camera matrices and distortion coefficints and R and T that can be found in 3d_tools/examples/test_reprojector.py
 ### 📦 Installation  
 - Install pybind 
 ```bash
